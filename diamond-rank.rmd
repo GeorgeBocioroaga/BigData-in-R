@@ -1,0 +1,236 @@
+---
+title: "League of Legends Diamond Ranked Games"
+author: "Bocioroaga George"
+date: "5/26/2020"
+output:
+  html_document:
+    df_print: paged
+---
+
+# Introducere
+
+  "League of Legends" (prescurtat ca LOL) este un joc competitiv MOBA de eroi online dezvoltat de Riot Games.
+
+  În joc există sute de eroi personalizați, precum și un sistem de clasament, un sistem de rune și alte sisteme de dezvoltare caracteristice.
+
+  „League of Legends” se angajează, de asemenea, să promoveze dezvoltarea e-sporturilor globale. Pe lângă legarea diferitelor regiuni pentru a dezvolta ligi profesionale și a crea un sistem e-sport, va organiza, de asemenea, mid-season championship", "global finals" si "All Star All-Star Game" în fiecare an. Cele trei evenimente de talie mondială au câștigat dragostea a sute de milioane de jucători și au format propria lor cultură e-sport unică.
+
+  Conținutul acestui raport va analiza în principal diferența dintre **grupul câștigător** și **grupul pierzător**.
+
+# File descriptions
+
+  high_diamond_ranked_10min.csv - Primele zece minute ale meciului din clasamentul cu diamante League of Legends.
+
+# Incarcarea pachetolor si a datelor
+
+```{r message = FALSE,warning = FALSE}
+library(tidyverse)
+library(dplyr)
+library(ggplot2)
+library(caret)
+library(randomForest)
+library(corrplot)
+
+data <- read.csv("C:/Users/George/Desktop/high_diamond_ranked_10min.csv")
+```
+
+# Curatarea datelor
+
+```{r}
+league_data <- read.csv("C:/Users/George/Desktop/high_diamond_ranked_10min.csv", stringsAsFactors = FALSE)
+league_data_update <- league_data_update <- league_data[, -c(22:40)]
+```
+  
+  În scopul acestei analize, vom folosi doar datele de la echipele albastre. Acest lucru este posibil deoarece presupunem că adevărata probabilitate de câștig este de 50%. Jucând în echipă albastră sau roșie nu ar trebui să afecteze șansa de câștig.
+
+# Cum infuenteaza aurul rata de câștig
+
+  Una dintre cele mai importante caracteristici ale jocului este câștigul de aur. Pentru avantaje strategice, jucătorii concurează pentru câștigurile de aur, deoarece este o parte crucială a consolidării personajelor lor. Vom compara rata de câștig observată între echipa cu mai mult aur decât adversarii și invers.
+
+  Am creat o nouă variabilă "dif_true", care clasifică un joc cu aur negativ câștigat ca 1 și pierdut ca 0. Luând media "BlueWins" separată de variabila "dif_true" ne arată procentul de joc câștigat cu diferențe de aur pozitive și diferențe de aur negative.
+
+```{r}
+num_function <- function(num){
+  if(num > 0) {
+return(0)
+} else {
+if(num == 0) {
+return(0)
+} else {
+return(1)
+}}}
+
+league_data_update <- mutate(league_data_update,diff_true = sapply(league_data_update$blueGoldDiff, FUN = num_function, simplify = TRUE, USE.NAMES = TRUE))
+league_data_update %>% 
+    group_by(diff_true) %>% 
+    summarise(win_rate = mean(blueWins, na.rm = TRUE))
+```
+
+  Rezultatul arată că aproximativ 72% din jocurile cu câștig de aur pozitiv au fost câștigate, în timp ce doar 27% din jocuri au fost câștigate cu venituri negative din aur. Aceasta nu ar trebui să fie o surpriză, deoarece veniturile din aur sunt direct legate, prin faptul că putem cumpara mai multe obiecte(items) și pentru a deveni un personaj mai puternic decât adversarii.
+
+# Venituri de aur pentru a câștiga rata: după cât de mult?
+
+  Acum că am stabilit modul în care diferențele de obținere a aurului sunt cruciale pentru a câștiga, dorim să analizăm mai îndeaproape cât de mult diferența de aur poate avea impact asupra câștigului. Pentru aceasta, am creat o variabilă suplimentară pentru a separa „blueGoldDiff” într-o gamă diferită. Această nouă variabilă clasifică 0 pentru câștiguri de aur egale sau mai mari, 1,2,3,4 pentru fiecare diferență de aur de 1 k.
+
+```{r}
+num_function_2 <- function(num){
+if (num >= 0 ) {
+return(0)
+} else if ( num >= - 1000 ) {
+return(1)
+} else if ( num >= - 2000) {
+return(2)
+} else if (num >= - 3000) {
+  return(3)}
+  else{
+return(4)
+}}
+
+league_data_update <- mutate(league_data_update,diff_true_2 = sapply(league_data_update$blueGoldDiff, FUN = num_function_2, simplify = TRUE, USE.NAMES = TRUE))
+
+league_data_update %>% 
+    group_by(diff_true_2) %>% 
+    summarise(win_rate = mean(blueWins, na.rm = TRUE))
+
+ggplot(league_data_update, aes(diff_true_2,,fill=factor(blueWins))) +
+  geom_bar() + ggtitle('win rate-ul cauzat de diferenta de aur') + xlab('diferenta de aur k')
+```
+
+  Din graficul cu bare, observăm o tendință descendentă între rata câștigului și câștigul de aur. Pe măsură ce diferența negativă a câștigurilor din aur crește, procentul jocurilor pierdute crește. Aceasta susține constatările anterioare ale modului în care sunt corelate rata câștigului și diferențele de aur.
+
+# Numarul de minioni omorati si venitul de aur
+
+```{r}
+league_data_update <- mutate(league_data,minion_diff = blueTotalMinionsKilled - redTotalMinionsKilled)
+
+
+minion <-league_data_update %>% 
+    group_by(minion_diff) %>% 
+    summarise(gold_Diff = mean(blueGoldDiff, na.rm = TRUE))
+
+
+ggplot(minion, aes(minion_diff,gold_Diff)) + geom_point() + geom_smooth(method=lm)
+
+print(minion)
+```
+
+  Cu ajutorul variabilei calculate anterior 'blueGoldDiff' putem să mergem mai în detaliu cu analiza importanței aurului în joc. Știm deja că aurul este obținut în urma kill-urilor adversarilor, dar acesta poate fi la fel de bine obținut și în urma kill-urilor de minioni. Minionii pe scurt, sunt niște caractere controlate de calculator, adjuvante, care se regenerează automat. Considerăm variabila 'minion_diff' ca fiind diferența dintre numărul de kill-uri ale minionilor de către echipa albastră și cea roșie. Apoi, folosim cele două variabile enunțate pentru a genera o regresie liniară. Pe scurt, regresia liniară simplă este o metodă de descriere a relației dintre două variabile prin intermediul unei linii drepte.
+asta înainte de chunck
+  Așadar, cu cât echipa albastră a omorât mai mulți minioni, cu atât a câștigat mai mult aur față de cea roșie. Cum am stabilit adieaori faptul că aurul influențează în mod direct rata de câștig, putem spune că și numărul de minioni omorâți o influențează la rândul ei.
+și asta după
+
+# Matrice de corelatie
+
+```{r}
+CorrMatrix<-cor(league_data_update%>%select(-1))
+corrplot(CorrMatrix,method = "color",type = "full",
+         order = "hclust",addCoef.col = "black",
+         tl.srt = 40,tl.cex = 0.7,number.cex = 0.55)
+```
+
+  O matrice de corelație este un tabel care prezintă coeficienții de corelație între variabile. Fiecare celulă din tabel arată corelația dintre două variabile. O matrice de corelație este utilizată pentru a rezuma datele, ca o intrare într-o analiză mai avansată și ca un diagnostic pentru analize avansate.
+
+  De obicei, o matrice de corelație este „pătrată” (ca in cazul de fata), cu aceleași variabile prezentate în rânduri și coloane. Aceasta arată corelații între importanța declarată a diferitelor lucruri pentru League of Legends. Linia de 1 care merge de la stânga sus la dreapta jos este diagonală principală , ceea ce arată că fiecare variabilă se corelează întotdeauna perfect cu ea însăși. Această matrice este simetrică, cu aceeași corelație, este prezentată deasupra diagonalei principale fiind o imagine în oglindă a celor de sub diagonala principală.
+
+
+# Ward plasat/distrus pentru win rate
+
+  Ward-urile sunt obiecte care, odată instalate, oferă viziune către o locație nemarcată. Ward-urile sunt utilizate pentru a localiza mișcările inamice și pentru a oferi un avantaj tactic asupra unei anumite regiuni într-un joc. Vom compara media de plasari și distrugeri de ward-urile într-un joc cu rezultatul jocului (câștigați ca 1, pierdeți ca 0).
+
+```{r}
+league_data_update %>% 
+    group_by(blueWins) %>% 
+    summarise(avg_ward_placed = mean(blueWardsPlaced, na.rm = TRUE))
+
+league_data_update %>% 
+    group_by(blueWins) %>% 
+    summarise(avg_ward_destroyed = mean(blueWardsDestroyed, na.rm = TRUE))
+ggplot(league_data_update, aes(blueWardsPlaced,fill=factor(blueWins))) +
+  geom_boxplot() + ggtitle("Ward-uri plasate")
+
+ggplot(league_data_update, aes(blueWardsDestroyed,fill=factor(blueWins))) +
+  geom_boxplot() + ggtitle("Ward-uri distruse")
+
+
+
+```
+
+  Atât rezumatul statistic, cât și casetele arată o diferență mică sau nicio diferență între ward-urile plasate/distruse între jocurile câștigate și cele pierdute. Ward-ul mediu plasat atât pentru jocurile câștigate, cât și pentru cele pierdute este de aproximativ 22,28, iar ward-ul distrus in medie este de aproximativ 2,72 si 2,92.
+
+# Diferenta kill-uri pentru win rate
+
+  Ultima caracteristică a jocului de analizat este numărul kill-uri legate de win rate. În cazul în care un inamic este ucis, inamicului îi este interzis să joace jocul pentru o perioadă de timp, iar asasinul castiga aur pentru kill-ul respectiv. În acest sens, numărul kill-urilor ar trebui să urmeze intuitiv aceeași tendință în raport cu win rate ca și câștigul aurului.
+
+  Pentru aceasta, am creat o nouă variabilă pentru diferența dintre kill-uri din partea echipei inamice. Pentru fiecare diferență de kill-uri, am calculat win rate pentru fiecare și am trasat o linie de regresie simplă.
+
+```{r}
+league_data_update <- mutate(league_data,kill_diff = blueKills - redKills)
+
+
+kill <-league_data_update %>% 
+    group_by(kill_diff) %>% 
+    summarise(win_rate = mean(blueWins, na.rm = TRUE))
+
+
+ggplot(kill, aes(kill_diff,win_rate)) + geom_point() + geom_smooth(method=lm)
+
+
+
+regkill <- lm(win_rate ~ kill_diff,data = kill)
+summary(regkill)
+
+
+
+```
+
+
+  Graficul prezintă o relație pozitivă semnificativă cu diferența de omor și rata de câștig. Aceasta urmează asteptarile noastră. Din rezumatul statistic al liniei de regresie simplă, fiecare diferență de omor contribuie la o creștere / scădere de aproximativ 3% a ratei câștigului.
+
+# Random forest
+
+```{r}
+league_data_update$blueWins <- as.character(league_data_update$blueWins)
+league_data_update$blueWins<- as.factor(league_data_update$blueWins)
+
+n <- nrow(league_data_update)
+#Preluam doar 80% dataset
+n_train <- round(0.80 * n)
+
+set.seed(123)
+train_indices <- sample(1:n, n_train)
+
+league_train <- league_data_update[train_indices, ]
+
+league_test <- league_data_update[-train_indices, ]
+
+paste("train sample size: ", dim(league_train)[1])
+paste("test sample size: ", dim(league_test)[1])
+
+league_rf <- randomForest(blueWins~ ., data=league_train, importance=TRUE,
+proximity=TRUE)
+print(league_rf )
+
+
+#league_train_target <- league_train$blueWins
+league_test_target <- league_test$blueWins
+
+
+league_test <- league_test [, !(colnames(league_test ) %in% c("blueWins"))]
+pred_rf <- predict(league_rf, league_test)
+CMrf<-confusionMatrix(data=pred_rf, league_test_target)
+
+print(CMrf)
+
+```
+
+  Pentru a înțelege algoritmul "random forest" trebuie mai întâi să introducem în discuție 
+"decision trees" sau arborii de decizie. Ei sunt destul de intuitivi, întrucât nu reprezintă 
+nimic mai mult decât un șir de decizii care pot fi luate într-o anumită situație.
+
+  "Random Forest" conține astfel mai mulți arbori de decizie ce funcționează ca un întreg.
+Fiecare arbore realizează o predicție iar mai apoi, ele sunt aduse împreună și este realizată
+o predicție cu acuratețe mai mare. Cu cât mai mulți arbori decizionali, cu atât mai mare precizia.
+e cumva general, dar am încercat să o pun cât de clar
+să înțelegem ceva
+
+
